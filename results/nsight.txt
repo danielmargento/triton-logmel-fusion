@@ -1,0 +1,35 @@
+Nsight profiling of the post-FFT mel-plus-log kernel
+====================================================
+
+Workload: fp32 power spectrum of shape [8, 201, 1001] (batch 8, 10 s audio),
+RTX 4090, CUDA 12.8. The power spectrum is built once before the measured region
+so the profile captures only the fused mel-plus-log kernel, not the FFT.
+
+Nsight Compute (ncu): blocked on this host
+------------------------------------------
+ncu reads GPU hardware performance counters, which the RunPod shared pod does not
+permit (ERR_NVGPUCTRPERM). The deep metrics it would provide (achieved occupancy,
+memory throughput, roofline placement) need a bare-metal or privileged GPU where
+the driver flag NVreg_RestrictProfilingToAdminUsers is cleared. The launch and
+timing analysis below comes from Nsight Systems, which does not need those
+counters and runs fine in the container.
+
+Nsight Systems (nsys): CUDA kernel durations, per launch
+-------------------------------------------------------
+backend     kernel                                   avg duration   notes
+reference   ampere_sgemm_128x128_nt (cuBLAS)          20.0 us        matmul only
+reference   elementwise log / clamp / abs kernels    9 to 15 us ea  several separate launches
+Triton      _mel_log_kernel (tensor cores)           16 to 24 us    matmul AND log fused in one kernel
+CUDA C      mel_log_kernel (naive, no tensor cores)  114 us         one thread per output
+context     cuFFT regular_fft_r2c                     20.3 us        the FFT, left on cuFFT
+
+Findings
+--------
+The naive hand-written CUDA kernel is about 5 to 6 times slower than both cuBLAS
+and the Triton kernel, because it runs a plain one-thread-per-output reduction
+with no tensor cores. The Triton kernel matches cuBLAS on the matmul while also
+fusing the log, so it does in a single launch what the reference does across a
+cuBLAS gemm plus several elementwise kernels. This is the tensor-core and fusion
+advantage made concrete, and it explains the end-to-end timings in backends.txt:
+the naive CUDA kernel wins only on tiny inputs where launch overhead dominates
+and its lack of tensor cores does not yet matter.

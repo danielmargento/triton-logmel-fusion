@@ -1,0 +1,39 @@
+Fused frontend across GPU architectures
+=======================================
+
+The fused Triton kernel measured against the reference on six GPUs spanning four
+tensor-core generations. Speedup is reference / fused p50 at the given cell, with
+kernels pre-warmed so autotuning does not pollute the first measurement.
+Reproduce per GPU with: PYTHONPATH=src python bench/arch_report.py
+
+GPU            gen        cap   fp16 1/1s  fp16 8/10s  fp16 32/30s   fp32 range
+RTX 4090       Ada        8.9     1.24x      1.18x        1.06x      0.92 to 1.04x
+L4             Ada        8.9     1.34x      1.13x        1.12x      0.92 to 1.04x
+A40            Ampere     8.6     1.47x      1.13x        1.21x      0.83 to 1.05x
+A100 80GB      Ampere     8.0     1.09x      1.07x        1.25x      0.93 to 0.99x
+H100           Hopper     9.0     0.91x      1.06x        1.13x      0.80 to 0.93x
+B200           Blackwell  10.0    0.97x      0.92x        1.11x      0.78 to 0.87x
+
+Absolute fused fp16 latency at batch 32, 30 s (hardware speed ranking):
+  B200 0.64 ms, H100 0.86 ms, A100 1.43 ms, RTX 4090 1.78 ms, A40 3.10 ms, L4 7.04 ms
+
+Findings
+--------
+The fusion win is largest on bandwidth-limited cards and smallest on the newest
+flagships. The A40 and L4, which use GDDR memory and modest compute, show the
+biggest fp16 gains (up to 1.47x on short clips, and still 1.12 to 1.21x at large
+batch). The H100 and B200, whose cuBLAS and tensor cores are extremely strong,
+show little or no gain on small inputs and can lose, because the vendor baseline
+is already near optimal and our kernel's overhead is a larger relative share.
+
+fp16 at large batch wins on every GPU (1.06 to 1.25x), because collapsing the
+post-FFT stages into one launch helps even when the matmul is compute bound.
+
+fp32 is parity to a small loss everywhere, and the loss grows on the newest cards
+(B200 down to 0.78x), where cuBLAS is hardest to beat and fp32 is not where the
+fusion helps.
+
+The takeaway: a hand-written fusion adds the most value where the vendor's
+baseline is least optimized, which here means older and smaller GPUs, and the
+least on the newest high-end hardware. Any single-GPU speedup number is therefore
+incomplete without saying which GPU it came from.

@@ -1,0 +1,17 @@
+Benchmark environment
+======================
+
+GPU            NVIDIA GeForce RTX 4090, 24564 MiB, compute capability 8.9 (Ada Lovelace)
+Driver         570.158.01
+CUDA (build)   12.8
+Python         3.12.3
+PyTorch        2.8.0+cu128
+Triton         3.4.0
+torchaudio     2.8.0+cu128
+Whisper        openai-whisper (base, small)
+Host           RunPod secure cloud, single dedicated RTX 4090
+
+Mel parameters (Whisper): sample_rate 16000, n_fft 400, hop_length 160, n_mels 80.
+Benchmark grid: batch in {1, 8, 32}, duration in {1, 10, 30} s, precision in {fp32, fp16}.
+Timing: CUDA events, 25 warmup iterations, 100 measured iterations, L2 cache flushed
+between iterations. Latencies are per call in milliseconds.

@@ -1,0 +1,28 @@
+fp32 frontend latency: reference vs Triton vs CUDA C
+====================================================
+RTX 4090. All three run the same fp32 FFT, so the difference is the post-FFT
+implementation. Speedups are reference / backend. The Triton batch1/1s 0.19x is
+a first-cell autotune warmup artifact, not signal.
+
+Reproduce: PYTHONPATH=src python bench/compare_backends.py
+
+ batch  dur_s    ref_ms  triton_ms   cuda_ms  triton_sp   cuda_sp
+     1      1    0.0451     0.2391    0.0308      0.19x     1.47x
+     1     10    0.0492     0.0543    0.0523      0.91x     0.94x
+     1     30    0.0625     0.0677    0.0973      0.92x     0.64x
+     8      1    0.0584     0.0522    0.0420      1.12x     1.39x
+     8     10    0.1178     0.1167    0.2070      1.01x     0.57x
+     8     30    0.2775     0.3154    0.6093      0.88x     0.46x
+    32      1    0.0800     0.0748    0.0809      1.07x     0.99x
+    32     10    0.4260     0.4680    0.8744      0.91x     0.49x
+    32     30    1.7357     1.8924    3.1150      0.92x     0.56x
+
+Correctness: the CUDA C kernel matches the fp32 reference exactly (max relative
+error 1.2e-07).
+
+Reading: the naive CUDA C kernel wins on tiny inputs (batch 1 to 8, 1 s), where
+the frontend is launch-overhead bound and its single fused launch beats the
+reference's many kernels. It loses by about 2x on large inputs, where the matmul
+dominates and the lack of tensor cores hurts. Nsight (nsight.txt) shows the
+per-kernel reason: 114 us for the naive kernel against roughly 20 us for cuBLAS
+and the Triton tensor-core kernel.

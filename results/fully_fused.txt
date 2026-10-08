@@ -1,0 +1,27 @@
+Maximally fused kernel vs the two-kernel fused path
+==================================================
+RTX 4090. The fully fused kernel (src/logmel/triton_fused_full.py) takes the raw complex
+FFT output and does magnitude, mel projection, log, and the per-utterance max
+reduction (via a GPU atomic) in one kernel. The two-kernel fused path starts from
+the power spectrum and leaves the max as a separate reduction. Speedups are
+reference / kernel.
+
+Reproduce: PYTHONPATH=src python bench/compare_full.py
+
+  dtype  cell     fused      full
+  fp16   b1  1s   1.08x      1.37x
+  fp16   b8 10s   1.20x      1.10x
+  fp16   b32 30s  1.06x      1.22x
+  fp32   b1  1s   0.89x      0.52x
+  fp32   b8 10s   1.04x      0.47x
+  fp32   b32 30s  0.98x      0.59x
+
+Correctness: matches the reference exactly enough (fp32 max relative error
+5e-04, fp16 1.6e-03).
+
+Reading: folding in the magnitude and the max reduction raises the fp16 win, most
+on short clips (1.08x to 1.37x) and at large batch (1.06x to 1.22x),
+because it removes the materialized power spectrum and the standalone amax. The
+fp32 path regresses, because its IEEE matmul is slow and the extra STFT handling
+is pure overhead there. fp32 was never where this fusion helps, so the fully
+fused kernel is an fp16 win.
